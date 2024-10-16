@@ -1,0 +1,6 @@
+open this folder in vs code.
+in terminal run "npm install",
+then run "npm run dev",
+
+.. you have to change the endpoint in src/components/Chat.jsx line number 50 .. 
+
