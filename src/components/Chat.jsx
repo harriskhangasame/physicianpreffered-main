@@ -8,23 +8,27 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { GoogleOutlined } from '@ant-design/icons';
-import { Button, Col, Row } from 'antd';
+import { Button, Col, Row, Spin, Tooltip } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import { useParams } from 'react-router-dom';
-import { Tooltip } from 'antd';
+import jsPDF from 'jspdf'; // Import jsPDF
+import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
 
 const Chat = ({ isSidebarOpen }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [inputText, setInputText] = useState('');
   const [selectedButton, setSelectedButton] = useState('Patient History');
   const [uploading, setUploading] = useState(false);
-  const [rewrittenPdfUrl, setRewrittenPdfUrl] = useState(null); // New state to store rewritten PDF URL
+  const [rewrittenText, setRewrittenText] = useState(null); // New state to store rewritten text from JSON
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSignInModalOpen, setIsSignInModalOpen] = useState(false); // New state for "Sign in with Google" modal
   const { user, setUser } = useLocalContext();
+  const [loadingDiv, setLoadingDiv] = useState(false);
   const modalRef = useRef(null);
-
+  const rewrittenTextRef = useRef();
   const { id } = useParams();
+
   useEffect(() => {
     const fetchData = async () => {
       if (id) {
@@ -34,12 +38,10 @@ const Chat = ({ isSidebarOpen }) => {
 
           if (docSnap.exists()) {
             const data = docSnap.data();
-            console.log(data);
-            // Update state variables based on the fetched data
             setSelectedFile({ name: data.fileName });
             setInputText(data.prompt || ''); // Set the input text if any prompt exists
             setSelectedButton(data.summaryType);
-            setRewrittenPdfUrl(data.responsePdf); // Set the URL of the rewritten PDF
+            setRewrittenText(data.responseText); // Assuming responseText will now hold the JSON response in text form
           } else {
             console.log('No such document!');
           }
@@ -54,7 +56,7 @@ const Chat = ({ isSidebarOpen }) => {
 
   const handleFileUpload = (event) => {
     setSelectedFile(event.target.files[0]);
-    setRewrittenPdfUrl(null);
+    setRewrittenText(null);
   };
 
   const handleRemoveFile = () => {
@@ -75,6 +77,7 @@ const Chat = ({ isSidebarOpen }) => {
       return;
     }
 
+    setLoadingDiv(true);
     const formData = new FormData();
     formData.append('pdf_file', selectedFile);
 
@@ -93,48 +96,41 @@ const Chat = ({ isSidebarOpen }) => {
         method: 'POST',
         body: formData,
       });
+      console.log(rewrittenText)
 
-      let rewrittenBlob;
-      let rewrittenPdfUrl;
-      const uploadId = uuidv4(); // Generate a unique ID for the upload
       if (response.ok) {
-        rewrittenBlob = await response.blob();
-
-        // Upload the rewritten PDF blob to Firebase Storage
-        const rewrittenPdfStorageRef = ref(storage, `rewritten_pdfs/${uploadId}.pdf`);
-        await uploadBytes(rewrittenPdfStorageRef, rewrittenBlob);
-
-        // Get Firebase Storage URL for the rewritten PDF
-        rewrittenPdfUrl = await getDownloadURL(rewrittenPdfStorageRef);
-        setRewrittenPdfUrl(rewrittenPdfUrl);  // Set the Firebase URL for displaying the rewritten PDF
+        // console.log
+        const jsonResponse = await response.json();
+        console.log(jsonResponse);
+        const rewrittenTextFromApi = jsonResponse.rewritten_pdf; // Access the text from the JSON response
+        setRewrittenText(rewrittenTextFromApi); // Set the text content from the API response
+        console.log(rewrittenText)
       } else {
         console.error('Error from API');
       }
-
-      // Upload the original PDF to Firebase Storage
       const storageRef = ref(storage, `uploads/${uploadId}/${selectedFile.name}/${selectedButton}`);
       const uploadResult = await uploadBytes(storageRef, selectedFile);
       const downloadUrl = await getDownloadURL(uploadResult.ref);
-
       // Save data to Firestore
       const docRef = doc(db, `uploads/${uploadId}`); // Save under uploads/uuid
       await setDoc(docRef, {
         email: user.email,
         summaryType: selectedButton,
         uploadedAt: new Date(),
-        responsePdf: rewrittenPdfUrl,  // Firebase URL for the rewritten PDF
+        rewrittenText: rewrittenText,  // Firebase URL for the rewritten PDF
         filePath: uploadResult.ref.fullPath,
-        fileName: selectedFile.name,
-        downloadUrl: downloadUrl  // Firebase download URL for the uploaded file
+        fileName: selectedFile.name,// Firebase download URL for the uploaded file
       });
       console.log('Data successfully saved to Firestore');
     } catch (error) {
       console.error('Error occurred while sending request:', error);
     } finally {
       setUploading(false);
+      setLoadingDiv(false);
+      console.log(rewrittenText)
     }
-  };
 
+  };
 
   const toggleModal = () => {
     setIsModalOpen(!isModalOpen);
@@ -143,6 +139,7 @@ const Chat = ({ isSidebarOpen }) => {
   const toggleSignInModal = () => {
     setIsSignInModalOpen(!isSignInModalOpen); // Toggle the "Sign in with Google" modal
   };
+
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
@@ -172,10 +169,88 @@ const Chat = ({ isSidebarOpen }) => {
     };
   }, [isSignInModalOpen]);
 
+  const formatTextWithBold = (text) => {
+    let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    formattedText = formattedText.replace(/###\s*(\w+\s+\w+)/g, '<strong>$1</strong>');
+    let formattedTextWithLineBreaks = formattedText.replace(/\n/g, '<br>');
+    formattedTextWithLineBreaks = formattedTextWithLineBreaks.replace(/---/g, '');
+    return { __html: formattedTextWithLineBreaks }; // Use dangerouslySetInnerHTML to render bold text
+  };
+
+  const handleDownloadPDF = () => {
+    const element = rewrittenTextRef.current; // Get the reference to the rewritten text div
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'pt',
+      format: 'a4'
+    });
+
+    const marginLeft = 40; // Left margin
+    let currentHeight = 40; // Starting height (top margin)
+    const pageHeight = pdf.internal.pageSize.height;
+
+    const formattedText = rewrittenText.split('\n'); // Split by new line
+    const lineHeight = 16; // Line height for normal text
+    const boldLineHeight = 18; // Line height for bold text
+
+    formattedText.forEach((line) => {
+      // Check for bold text (assuming bold text is wrapped in **double asterisks**)
+      const boldMatches = line.match(/\*\*(.*?)\*\*/);
+
+      if (boldMatches) {
+        const parts = line.split(/\*\*(.*?)\*\*/); // Split text into non-bold and bold parts
+
+        parts.forEach((part, index) => {
+          if (index % 2 === 0) {
+            // Regular text (non-bold)
+            pdf.setFont('helvetica', 'normal');
+            const textLines = pdf.splitTextToSize(part, 500); // Wrap the text for current width
+            textLines.forEach((textLine) => {
+              pdf.text(marginLeft, currentHeight, textLine);
+              currentHeight += lineHeight;
+
+              if (currentHeight > pageHeight - 40) {
+                pdf.addPage();
+                currentHeight = 40;
+              }
+            });
+          } else {
+            // Bold text
+            pdf.setFont('helvetica', 'bold');
+            const boldLines = pdf.splitTextToSize(part, 500);
+            boldLines.forEach((boldLine) => {
+              pdf.text(marginLeft, currentHeight, boldLine);
+              currentHeight += boldLineHeight;
+
+              if (currentHeight > pageHeight - 40) {
+                pdf.addPage();
+                currentHeight = 40;
+              }
+            });
+          }
+        });
+      } else {
+        // Handle lines without bold formatting
+        pdf.setFont('helvetica', 'normal');
+        const textLines = pdf.splitTextToSize(line, 500);
+        textLines.forEach((textLine) => {
+          pdf.text(marginLeft, currentHeight, textLine);
+          currentHeight += lineHeight;
+
+          if (currentHeight > pageHeight - 40) {
+            pdf.addPage();
+            currentHeight = 40;
+          }
+        });
+      }
+    });
+
+    pdf.save(`${selectedFile?.name || 'document'}_rewritten.pdf`);
+  };
 
   return (
     <div className="flex flex-col h-full bg-gray-50 shadow-lg rounded-md sm:pt-[18vh]">
-      {/* Content Area (scrollable) */}
+      {/* Content Area */}
       <div className="flex-grow overflow-y-auto p-6 pb-[30vh]">
         <div className="mb-2">
           <p className="font-semibold text-center text-xl mb-4">Input a Patient Summary</p>
@@ -184,7 +259,6 @@ const Chat = ({ isSidebarOpen }) => {
           </p>
         </div>
 
-        {/* File Upload and Input */}
         {selectedFile && (
           <div className="flex items-center justify-between border border-gray-300 bg-gray-100 p-3 rounded-md mb-4">
             <span className="text-gray-800 font-semibold">{selectedFile.name}</span>
@@ -192,27 +266,25 @@ const Chat = ({ isSidebarOpen }) => {
           </div>
         )}
 
-        {/* PDF Viewer Block */}
-        {/* PDF Viewer Block */}
-        {rewrittenPdfUrl && (
-          <div className="mt-4">
-            <p className="font-semibold mb-2">Rewritten PDF:</p>
-            <div className="border border-gray-300 p-4 bg-white rounded-md mb-4" style={{ height: '500px', overflowY: 'auto' }}>
-              {/* Ensure the `src` has a valid Blob URL and iframe has proper width/height */}
-              <iframe
-                src={rewrittenPdfUrl}
-                className="w-full h-full"
-                title="Rewritten PDF"
-                style={{ minHeight: '500px', width: '100%' }} // Set min height and width explicitly
-              />
+        {/* JSON Response Display */}
+        {rewrittenText && (
+          <div className="mt-4 relative">
+            <p className="font-semibold mb-2">Rewritten Summary:</p>
+            <div
+              className="border border-gray-300 p-4 bg-white rounded-md mb-4"
+              style={{ height: '500px', overflowY: 'auto' }}
+              ref={rewrittenTextRef} // Reference to the div containing the rewritten text
+            >
+              <div dangerouslySetInnerHTML={formatTextWithBold(rewrittenText)} />
             </div>
-            <a href={rewrittenPdfUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
-              Click here to download the PDF
-            </a>
+            <button
+              onClick={handleDownloadPDF}
+              className="absolute top-0 right-0 bg-[#015BA3] text-white px-4 py-2 rounded-md"
+            >
+              Download PDF
+            </button>
           </div>
         )}
-
-
       </div>
 
       {/* Fixed Input and Action Area */}
@@ -262,10 +334,10 @@ const Chat = ({ isSidebarOpen }) => {
                     onClick={() => !isDifferentialDiagnosis && handleButtonClick(text)} // Disable onClick for Differential Diagnosis
                     disabled={isDifferentialDiagnosis} // Disable the button
                     className={`p-2 border rounded-md ${selectedButton === text
-                        ? 'bg-[#015BA3] text-white border-[#015BA3]'  // Active state
-                        : isDifferentialDiagnosis
-                          ? 'bg-gray-400 text-gray-200 border-gray-400 cursor-not-allowed'  // Disabled state for Differential Diagnosis
-                          : 'bg-white text-[#015BA3] border-[#015BA3]'
+                      ? 'bg-[#015BA3] text-white border-[#015BA3]'  // Active state
+                      : isDifferentialDiagnosis
+                        ? 'bg-gray-400 text-gray-200 border-gray-400 cursor-not-allowed'  // Disabled state for Differential Diagnosis
+                        : 'bg-white text-[#015BA3] border-[#015BA3]'
                       }`}
                     style={{ cursor: isDifferentialDiagnosis ? 'not-allowed' : 'pointer' }} // Change cursor to not-allowed for disabled button
                   >
@@ -275,8 +347,6 @@ const Chat = ({ isSidebarOpen }) => {
               );
             })}
           </div>
-
-          {/* Disclaimer Link */}
           <p className="text-gray-500 text-sm mt-2 text-center">
             <button onClick={toggleModal} className="text-blue-500 underline">
               Disclaimer
@@ -284,33 +354,6 @@ const Chat = ({ isSidebarOpen }) => {
           </p>
         </div>
       </div>
-
-      {/* Modal for "Sign in with Google" */}
-      {isSignInModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-md shadow-md w-[90vw] md:w-[30vw]" ref={modalRef}>
-            <div className="text-center">
-              <h2 className="text-2xl font-semibold mb-4 text-black">Sign in to your account</h2>
-              <p className="text-gray-500 mb-8">Generate Reports and more!</p>
-              <Row gutter={[16, 16]} justify="center">
-                <Col span={24}>
-                  <Button
-                    type="primary"
-                    className="w-full"
-                    style={{ backgroundColor: '#db4437', borderColor: '#db4437' }}
-                    icon={<GoogleOutlined />}
-                    onClick={handleGoogleSignIn}
-                  >
-                    Sign in with Google
-                  </Button>
-                </Col>
-              </Row>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Disclaimer Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-white p-6 rounded-md shadow-md w-[90vw] md:w-[40vw]">
@@ -348,6 +391,16 @@ const Chat = ({ isSidebarOpen }) => {
         </div>
       )}
 
+      {loadingDiv && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-md shadow-md w-[90vw] md:w-[30vw]">
+            <div className="text-center">
+              <Spin size="large" />
+              <p className='mt-4'>Processing File</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
