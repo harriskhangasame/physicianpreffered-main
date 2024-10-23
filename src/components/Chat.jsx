@@ -108,6 +108,8 @@ const Chat = ({ isSidebarOpen }) => {
       } else {
         console.error('Error from API');
       }
+      console.log("here");
+      const uploadId=uuidv4();
       const storageRef = ref(storage, `uploads/${uploadId}/${selectedFile.name}/${selectedButton}`);
       const uploadResult = await uploadBytes(storageRef, selectedFile);
       const downloadUrl = await getDownloadURL(uploadResult.ref);
