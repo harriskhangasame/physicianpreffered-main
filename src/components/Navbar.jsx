@@ -76,7 +76,7 @@ const Navbar = ({ toggleSidebar }) => {
 
   return (
     <>
-      <div className='w-full flex justify-between items-center sm:px-6 sm:py-4 shadow-md fixed top-0 bg-white'>
+      <div className='w-full flex justify-between items-center z-50 sm:px-6 sm:py-4 shadow-md fixed top-0 bg-white'>
         <div className="flex items-center gap-8">
           <FaBars
             className="text-black text-2xl cursor-pointer"
