@@ -5,7 +5,8 @@ import { useLocalContext } from '../context/context';
 import { collection, query, where, getDocs } from 'firebase/firestore'; // Firestore functions
 import db from '../lib/firebase';
 
-const Sidebar = () => {
+const Sidebar = () => 
+  {
   const { user } = useLocalContext(); // Get the current user from context
   const [uploads, setUploads] = useState([]); // State to hold the uploads
 
@@ -33,6 +34,7 @@ const Sidebar = () => {
 
     fetchUploads();
   }, [user]);
+  // console.log (uploads.fileUrls);
 
   return (
     <motion.div
@@ -40,7 +42,7 @@ const Sidebar = () => {
       animate={{ x: 0 }} // Slide in
       exit={{ x: '-100%' }} // Slide out
       transition={{ type: 'tween', duration: 0.3 }} // Smooth transition
-      className="fixed top-[5rem] bottom-0 w-[16vw] h-[86.8vh] flex flex-col items-center py-6 border-r bg-white text-black shadow-lg overflow-y-auto"
+      className="fixed top-[5rem] bottom-0 w-[90vw] md:w-[20vw] lg:w-[16vw] h-[80vh] md:h-[86.8vh] flex flex-col items-center py-6 border-r bg-white text-black shadow-lg overflow-y-auto"
     >
       {/* Title */}
       <h2 className="text-xl font-bold mb-6 text-[#015BA3]">Query Manager</h2>
@@ -50,20 +52,32 @@ const Sidebar = () => {
         New Query +
       </Link>
 
-      {/* Sidebar Content */}
+
+       {/* Side Bar Content */}
       <div className="flex flex-col items-start w-full px-4 space-y-4">
         {uploads.length > 0 ? (
           uploads.map((upload) => (
-            <Link
-              key={upload.id}
-              to={`/uploads/${upload.id}`} // Route to the UUID (id of the upload)
-              className="w-full"
-            >
-              <button className="w-full p-4 text-left bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200">
-                {/* Display the file name without .pdf */}
-                <p className="text-sm font-medium">{upload.fileName.replace(/\.pdf$/i, '')}</p>
-              </button>
-            </Link>
+            
+            //changes made
+            <div key={upload.id} className="w-full">
+              {upload.fileUrls && upload.fileUrls[0]  ? (
+
+                
+                  <Link to={`/uploads/${upload.id}`}  className="w-full">
+                    <button className="w-full p-4 bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200 text-left font-semibold">
+                      {/* Display file name and formatted upload time */}
+                      <p className="text-sm font-medium">{upload.fileUrls[0].fileName.replace(/\.pdf$/i, '')}</p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(upload.uploadedAt.seconds * 1000).toLocaleString()}
+                      </p>
+                      
+                    </button>
+                  </Link>
+                
+              ) : (
+                <p className="text-gray-500">No files available</p>
+              )}
+            </div>
           ))
         ) : (
           <p className="text-gray-500">No uploads found</p>
@@ -72,5 +86,30 @@ const Sidebar = () => {
     </motion.div>
   );
 };
+
+
+      {/* Sidebar Content */}
+      {/* <div className="flex flex-col items-start w-full px-4 space-y-4">
+        {uploads.length > 0 ? (
+          uploads.map((upload) => (
+            <Link
+              key={upload.id}
+              to={`/uploads/${upload.id}`} // Route to the UUID (id of the upload)
+              className="w-full"
+            >
+              <button className="w-full p-4 bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200 text-center font-semibold">
+                {/* Display the file name without .pdf */}
+                {/* <p className="text-sm font-medium">{upload.fileName.replace(/\.pdf$/i, '')}</p> */}
+{/*              /In Progress */}
+{/*               </button> */}
+{/*             </Link> */}
+{/*          ))
+     ) : (
+          <p className="text-gray-500">No uploads found</p>
+        )}
+      </div> */}
+{/*     </motion.div> */}
+{/*   );
+}; */} 
 
 export default Sidebar;

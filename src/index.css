@@ -1,3 +1,28 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@media (max-width: 768px) {
+    .rewritten-text {
+      height: 300px; /* Adjust height for mobile */
+    }
+  
+    .modal {
+      width: 90vw; /* Full width for modals on mobile */
+    }
+  
+    .chat-input {
+      padding: 10px; /* Adjust padding */
+    }
+  }
+  
+  @media (min-width: 768px) {
+    .rewritten-text {
+      height: 800px; /* Adjust height for tablets */
+    }
+  
+    .modal {
+      width: 40vw; /* Modals on tablets and larger screens */
+    }
+  }
+  

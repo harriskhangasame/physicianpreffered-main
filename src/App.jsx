@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 import Navbar from './components/Navbar';
 import Chat from './components/Chat';
@@ -7,11 +7,27 @@ import 'antd/dist/reset.css';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'; // Import Router components
 
 function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Sidebar is open by default
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768); // Sidebar is open on larger screens
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen); // Toggle sidebar visibility
   };
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 768) {
+        setIsSidebarOpen(false); // Close sidebar on mobile
+      } else {
+        setIsSidebarOpen(true); // Open sidebar on larger screens
+      }
+    };
+
+    window.addEventListener('resize', handleResize); // Add resize event listener
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   return (
     <Router>
@@ -20,13 +36,9 @@ function App() {
         <div className="flex flex-1">
           {isSidebarOpen && <Sidebar />}
           <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-[16vw]' : 'ml-0'}`}>
-            {/* Define Routes Here */}
             <Routes>
-              {/* Root path for general Chat */}
               <Route path="/" element={<Chat isSidebarOpen={isSidebarOpen} />} />
-              {/* Dynamic path for specific uploads */}
               <Route path="/uploads/:id" element={<Chat isSidebarOpen={isSidebarOpen} />} />
-              {/* Add more routes as needed */}
             </Routes>
           </div>
         </div>

@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FaTimes, FaInfoCircle } from 'react-icons/fa';
+import { FaTimes } from 'react-icons/fa';
 import { BsFileEarmarkArrowUp } from 'react-icons/bs';
 import { useLocalContext } from '../context/context';
-import db, { storage } from '../lib/firebase';
+import db, { auth, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth } from '../lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { GoogleOutlined } from '@ant-design/icons';
-import { Button, Col, Row, Spin, Tooltip } from 'antd';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { Button, Spin, Row, Col, Tooltip } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import { useParams } from 'react-router-dom';
+import { GoogleOutlined } from '@ant-design/icons';
+import { AiOutlineDownload } from 'react-icons/ai';
 
 const Chat = ({ isSidebarOpen }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -24,6 +24,7 @@ const Chat = ({ isSidebarOpen }) => {
   const [loadingDiv, setLoadingDiv] = useState(false);
   const rewrittenTextRef = useRef();
   const { id } = useParams();
+  const modalRef = useRef(null); // Ref for the modal
 
   useEffect(() => {
     const fetchData = async () => {
@@ -32,27 +33,59 @@ const Chat = ({ isSidebarOpen }) => {
           const docRef = doc(db, 'uploads', id);
           const docSnap = await getDoc(docRef);
 
-          if (docSnap.exists()) {
+          if (docSnap.exists()) 
+            {
             const data = docSnap.data();
-            setSelectedFiles([{ name: data.fileName }]);
+            const fileNames = data.fileUrls.map((file) => file.fileName);
+            
+
+            console.log(fileNames);
+            // setSelectedFiles([{ name: data.fileUrls[0].fileName }]);
+            setSelectedFiles(fileNames.map((name) => ({ name })));
             setInputText(data.prompt || '');
             setSelectedButton(data.summaryType);
-            setRewrittenText(data.responseText);
-          } else {
+            setRewrittenText(data.rewrittenText);
+          } else 
+          {
             console.log('No such document!');
           }
-        } catch (error) {
+        }
+         catch (error) {
           console.error('Error fetching document:', error);
         }
+      }
+      else {
+        setSelectedFiles([]);
+        setInputText('');
+        setSelectedButton('Patient History');
+        setRewrittenText(null);
       }
     };
 
     fetchData();
   }, [id]);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        setIsSignInModalOpen(false); // Close modal if clicked outside
+      }
+    };
+
+    if (isSignInModalOpen) {
+      document.addEventListener('mousedown', handleClickOutside); // Add event listener
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside); // Cleanup on modal close
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside); // Cleanup on unmount
+    };
+  }, [isSignInModalOpen]);
+
   const handleFileUpload = (event) => {
     const files = Array.from(event.target.files);
-    setSelectedFiles((prevFiles) => [...prevFiles, ...files]);
+    setSelectedFiles(files);
     setRewrittenText(null);
   };
 
@@ -100,6 +133,8 @@ const Chat = ({ isSidebarOpen }) => {
 
       if (mergeResponse.ok) {
         const mergedPdfBlob = await mergeResponse.blob();
+        console.log(mergedPdfBlob);
+        console.log(mergeResponse);
 
         const rewriteFormData = new FormData();
         rewriteFormData.append('pdf_file', mergedPdfBlob, 'merged_summary.pdf');
@@ -114,20 +149,37 @@ const Chat = ({ isSidebarOpen }) => {
           const jsonResponse = await rewriteResponse.json();
           const rewrittenTextFromApi = jsonResponse.rewritten_pdf;
           setRewrittenText(rewrittenTextFromApi);
+          // const queryname = 
+          // console.log( rewrittenTextFromApi.name);
 
           const uploadId = uuidv4();
-          const storageRef = ref(storage, `uploads/${uploadId}/${selectedFiles[0].name}/${selectedButton}`);
-          const uploadResult = await uploadBytes(storageRef, selectedFiles[0]);
-          const downloadUrl = await getDownloadURL(uploadResult.ref);
+          const fileUrls = []; 
+          for (const file of selectedFiles) 
+            {
+            const storageRef = ref(storage, `uploads/${uploadId}/${file.name}/${selectedButton}`);
+            
+            // Upload each file to storage
+            const uploadResult = await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(uploadResult.ref);
+            
+            // Add each download URL to the array
+            fileUrls.push(
+              {
+              url: downloadUrl,
+              fileName: file.name,
+            });
+          }
 
           const docRef = doc(db, `uploads/${uploadId}`);
-          await setDoc(docRef, {
+
+          await setDoc(docRef, 
+            {
             email: user.email,
             summaryType: selectedButton,
             uploadedAt: new Date(),
             rewrittenText: rewrittenTextFromApi,
-            filePath: uploadResult.ref.fullPath,
-            fileName: selectedFiles[0].name,
+            fileUrls,
+
           });
 
           console.log('Data successfully saved to Firestore');
@@ -142,6 +194,23 @@ const Chat = ({ isSidebarOpen }) => {
     } finally {
       setUploading(false);
       setLoadingDiv(false);
+    }
+  };
+
+  // console.log( rewrittenText );
+  // console.log(selectedFiles);
+  const toggleModal = () => {
+    setIsModalOpen(!isModalOpen);
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      setUser(result.user);
+      setIsSignInModalOpen(false);
+    } catch (error) {
+      console.error('Error signing in:', error);
     }
   };
 
@@ -164,7 +233,31 @@ const Chat = ({ isSidebarOpen }) => {
         </div>
       )}
 
-      <div className="flex-grow overflow-y-auto p-6 pb-[30vh]">
+      {isSignInModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-md shadow-md w-[90vw] md:w-[30vw]" ref={modalRef}>
+            <div className="text-center">
+              <h2 className="text-2xl font-semibold mb-4 text-black">Sign in to your account</h2>
+              <p className="text-gray-500 mb-8">Generate Reports and more!</p>
+              <Row gutter={[16, 16]} justify="center">
+                <Col span={24}>
+                  <Button
+                    type="primary"
+                    className="w-full"
+                    style={{ backgroundColor: '#db4437', borderColor: '#db4437' }}
+                    icon={<GoogleOutlined />}
+                    onClick={handleGoogleSignIn}
+                  >
+                    Sign in with Google
+                  </Button>
+                </Col>
+              </Row>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-grow overflow-y-auto p-3 pt-[15vh] sm:p-6 pb-[30vh]">
         <p className="font-semibold text-center text-xl mb-4">Input a Patient Summary</p>
         <p className="text-center mb-4">
           Include age, sex, relevant past medical history, medications, presenting symptoms, associated symptoms, etc.
@@ -185,11 +278,18 @@ const Chat = ({ isSidebarOpen }) => {
             <p className="font-semibold mb-2">Rewritten Summary:</p>
             <div
               className="border border-gray-300 p-4 bg-white rounded-md mb-4"
-              style={{ height: '500px', overflowY: 'auto' }}
+              style={{ height: '600px', overflowY: 'auto' }} // Adjust height for mobile responsiveness
               ref={rewrittenTextRef}
             >
               <div dangerouslySetInnerHTML={formatTextWithBold(rewrittenText)} />
             </div>
+            <button
+              // onClick={handleDownloadPDF}
+              className="absolute top-0 right-0 bg-[#015BA3] text-white px-4 py-2 rounded-md"
+            >
+              <AiOutlineDownload className="mr-2" /> 
+              {/* Download PDF */}
+            </button>
           </div>
         )}
       </div>
@@ -224,8 +324,77 @@ const Chat = ({ isSidebarOpen }) => {
               {uploading ? 'Uploading...' : 'Send'}
             </button>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            {['Patient History', 'Differential Diagnosis'].map((text, index) => {
+              const isDifferentialDiagnosis = text === 'Differential Diagnosis';
+
+              return (
+                <Tooltip
+                  key={index}
+                  title={isDifferentialDiagnosis ? 'Coming Soon' : ''} // Tooltip only for "Differential Diagnosis"
+                  placement="top"
+                >
+                  <button
+                    key={index}
+                    onClick={() => !isDifferentialDiagnosis && handleButtonClick(text)} // Disable onClick for Differential Diagnosis
+                    disabled={isDifferentialDiagnosis} // Disable the button
+                    className={`p-2 border rounded-md ${selectedButton === text
+                      ? 'bg-[#015BA3] text-white border-[#015BA3]'  // Active state
+                      : isDifferentialDiagnosis
+                        ? 'bg-gray-400 text-gray-200 border-gray-400 cursor-not-allowed'  // Disabled state for Differential Diagnosis
+                        : 'bg-white text-[#015BA3] border-[#015BA3]'
+                      }`}
+                    style={{ cursor: isDifferentialDiagnosis ? 'not-allowed' : 'pointer' }} // Change cursor to not-allowed for disabled button
+                  >
+                    {text}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+          <p className="text-gray-500 text-sm mt-2 text-center">
+            <button onClick={toggleModal} className="text-blue-500 underline">
+              Disclaimer
+            </button>
+          </p>
         </div>
       </div>
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-md shadow-md w-[90vw] md:w-[40vw]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Disclaimer</h2>
+              <FaTimes className="cursor-pointer text-gray-500" onClick={toggleModal} />
+            </div>
+            {/* Add a fixed height and make the content scrollable */}
+            <div className="text-sm text-gray-700 h-64 overflow-y-auto">
+              <p>
+                Protego Health AI Clinical Decision Support Platform Terms of Use
+
+                Purpose and Functionality
+                The Protego Health AI Clinical Decision Support (CDS) platform is specifically designed to augment the clinical decision-making processes of healthcare professionals. The platform's functionalities include the generation of preliminary drafts for differential diagnoses, clinical assessments, treatment plans, and responses to clinical reference inquiries.
+
+                Recommendation and Review
+                All outputs generated by the AI CDS serve as preliminary recommendations intended for independent review by the clinician user. These outputs are to be utilized as draft recommendations, requiring detailed review and validation by the clinician. The AI CDS platform's core features are intended solely as a supplementary tool to support clinical reasoning and must not replace or override the professional judgment of clinicians.
+
+                Platform Development and Limitations
+                Protego Health is committed to the continuous development of the AI CDS platform while recognizing and addressing its current limitations. The mission is to empower clinicians with a leading-edge AI CDS platform and improve patient outcomes globally.
+
+                Bias and Equity Considerations
+                Large language models, such as those utilized in the AI CDS platform, inherently possess limitations, including the potential to perpetuate biases derived from pre-training, fine-tuning, and user input. Protego Health has made extensive efforts to mitigate the perpetuation of harmful biases. As part of our commitment to safety, equity, and alignment in the deployment of AI CDS globally, users are advised to omit elements of clinical scenarios related to race, ethnicity, sexual orientation, gender, socio-economic status, disabilities, age, geographical location, and language or cultural background when utilizing the AI CDS. The prevention of bias perpetuation and the promotion of health equity are fundamental components of Protego Health's mission.
+
+                Restrictions on Use
+                The Protego Health AI CDS platform is explicitly not intended for use by patients. Users are strictly prohibited from employing this platform for personal health advice or as a substitute for professional medical consultation. The platform provides recommendations intended to assist clinicians in their clinical decision-making processes. AI-generated responses necessitate the expertise of a qualified clinician for accurate interpretation, as they often encompass a broad spectrum of potential diagnoses, diagnostic options, and therapeutic considerations within the context of probabilistic clinical reasoning.
+              </p>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={toggleModal} className="bg-[#015BA3] text-white px-4 py-2 rounded-md">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
