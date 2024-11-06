@@ -5,8 +5,7 @@ import { useLocalContext } from '../context/context';
 import { collection, query, where, getDocs } from 'firebase/firestore'; // Firestore functions
 import db from '../lib/firebase';
 
-const Sidebar = () => 
-  {
+const Sidebar = () => {
   const { user } = useLocalContext(); // Get the current user from context
   const [uploads, setUploads] = useState([]); // State to hold the uploads
 
@@ -34,7 +33,6 @@ const Sidebar = () =>
 
     fetchUploads();
   }, [user]);
-  // console.log (uploads.fileUrls);
 
   return (
     <motion.div
@@ -52,32 +50,20 @@ const Sidebar = () =>
         New Query +
       </Link>
 
-
-       {/* Side Bar Content */}
+      {/* Sidebar Content */}
       <div className="flex flex-col items-start w-full px-4 space-y-4">
         {uploads.length > 0 ? (
           uploads.map((upload) => (
-            
-            //changes made
-            <div key={upload.id} className="w-full">
-              {upload.fileUrls && upload.fileUrls[0]  ? (
-
-                
-                  <Link to={`/uploads/${upload.id}`}  className="w-full">
-                    <button className="w-full p-4 bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200 text-left font-semibold">
-                      {/* Display file name and formatted upload time */}
-                      <p className="text-sm font-medium">{upload.fileUrls[0].fileName.replace(/\.pdf$/i, '')}</p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(upload.uploadedAt.seconds * 1000).toLocaleString()}
-                      </p>
-                      
-                    </button>
-                  </Link>
-                
-              ) : (
-                <p className="text-gray-500">No files available</p>
-              )}
-            </div>
+            <Link
+              key={upload.id}
+              to={`/uploads/${upload.id}`} // Route to the UUID (id of the upload)
+              className="w-full"
+            >
+              <button className="w-full p-4 text-left bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200">
+                {/* Display the file name without .pdf */}
+                <p className="text-sm font-medium">{upload.fileName.replace(/\.pdf$/i, '')}</p>
+              </button>
+            </Link>
           ))
         ) : (
           <p className="text-gray-500">No uploads found</p>
@@ -86,30 +72,5 @@ const Sidebar = () =>
     </motion.div>
   );
 };
-
-
-      {/* Sidebar Content */}
-      {/* <div className="flex flex-col items-start w-full px-4 space-y-4">
-        {uploads.length > 0 ? (
-          uploads.map((upload) => (
-            <Link
-              key={upload.id}
-              to={`/uploads/${upload.id}`} // Route to the UUID (id of the upload)
-              className="w-full"
-            >
-              <button className="w-full p-4 bg-gray-100 border-b-2 border-gray-300 shadow-sm hover:bg-gray-200 transition-colors duration-200 text-center font-semibold">
-                {/* Display the file name without .pdf */}
-                {/* <p className="text-sm font-medium">{upload.fileName.replace(/\.pdf$/i, '')}</p> */}
-{/*              /In Progress */}
-{/*               </button> */}
-{/*             </Link> */}
-{/*          ))
-     ) : (
-          <p className="text-gray-500">No uploads found</p>
-        )}
-      </div> */}
-{/*     </motion.div> */}
-{/*   );
-}; */} 
 
 export default Sidebar;

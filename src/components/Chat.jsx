@@ -33,32 +33,18 @@ const Chat = ({ isSidebarOpen }) => {
           const docRef = doc(db, 'uploads', id);
           const docSnap = await getDoc(docRef);
 
-          if (docSnap.exists()) 
-            {
+          if (docSnap.exists()) {
             const data = docSnap.data();
-            const fileNames = data.fileUrls.map((file) => file.fileName);
-            
-
-            console.log(fileNames);
-            // setSelectedFiles([{ name: data.fileUrls[0].fileName }]);
-            setSelectedFiles(fileNames.map((name) => ({ name })));
+            setSelectedFiles([{ name: data.fileName }]);
             setInputText(data.prompt || '');
             setSelectedButton(data.summaryType);
             setRewrittenText(data.rewrittenText);
-          } else 
-          {
+          } else {
             console.log('No such document!');
           }
-        }
-         catch (error) {
+        } catch (error) {
           console.error('Error fetching document:', error);
         }
-      }
-      else {
-        setSelectedFiles([]);
-        setInputText('');
-        setSelectedButton('Patient History');
-        setRewrittenText(null);
       }
     };
 
@@ -133,8 +119,6 @@ const Chat = ({ isSidebarOpen }) => {
 
       if (mergeResponse.ok) {
         const mergedPdfBlob = await mergeResponse.blob();
-        console.log(mergedPdfBlob);
-        console.log(mergeResponse);
 
         const rewriteFormData = new FormData();
         rewriteFormData.append('pdf_file', mergedPdfBlob, 'merged_summary.pdf');
@@ -149,37 +133,20 @@ const Chat = ({ isSidebarOpen }) => {
           const jsonResponse = await rewriteResponse.json();
           const rewrittenTextFromApi = jsonResponse.rewritten_pdf;
           setRewrittenText(rewrittenTextFromApi);
-          // const queryname = 
-          // console.log( rewrittenTextFromApi.name);
 
           const uploadId = uuidv4();
-          const fileUrls = []; 
-          for (const file of selectedFiles) 
-            {
-            const storageRef = ref(storage, `uploads/${uploadId}/${file.name}/${selectedButton}`);
-            
-            // Upload each file to storage
-            const uploadResult = await uploadBytes(storageRef, file);
-            const downloadUrl = await getDownloadURL(uploadResult.ref);
-            
-            // Add each download URL to the array
-            fileUrls.push(
-              {
-              url: downloadUrl,
-              fileName: file.name,
-            });
-          }
+          const storageRef = ref(storage, `uploads/${uploadId}/${selectedFiles[0].name}/${selectedButton}`);
+          const uploadResult = await uploadBytes(storageRef, selectedFiles[0]);
+          const downloadUrl = await getDownloadURL(uploadResult.ref);
 
           const docRef = doc(db, `uploads/${uploadId}`);
-
-          await setDoc(docRef, 
-            {
+          await setDoc(docRef, {
             email: user.email,
             summaryType: selectedButton,
             uploadedAt: new Date(),
             rewrittenText: rewrittenTextFromApi,
-            fileUrls,
-
+            filePath: uploadResult.ref.fullPath,
+            fileName: selectedFiles[0].name,
           });
 
           console.log('Data successfully saved to Firestore');
@@ -197,8 +164,6 @@ const Chat = ({ isSidebarOpen }) => {
     }
   };
 
-  // console.log( rewrittenText );
-  // console.log(selectedFiles);
   const toggleModal = () => {
     setIsModalOpen(!isModalOpen);
   };
