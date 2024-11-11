@@ -76,7 +76,7 @@ const Navbar = ({ toggleSidebar }) => {
 
   return (
     <>
-      <div className='w-full flex justify-between items-center z-50 px-4 sm:px-6 py-4 shadow-md fixed top-0 bg-white'>
+      <div className='w-full flex justify-between items-center z-50 px-4 sm:px-6 py-3 shadow-md fixed top-0 bg-white'>
         <div className="flex items-center gap-4 sm:gap-8">
           <FaBars
             className="text-black text-2xl cursor-pointer"
@@ -84,13 +84,16 @@ const Navbar = ({ toggleSidebar }) => {
           />
           <img src={logo} className='h-10 sm:h-12' alt="Logo" /> {/* Responsive logo size */}
         </div>
-        <div className="flex items-center gap-4 sm:gap-8 relative"> {/* Changed to relative for dropdown */}
+        <div className="flex items-center gap-4 sm:gap-8 relative">
           {user ? (
             <>
-              <span className="font-poppins text-base sm:text-lg text-black">{user.displayName || 'User'}</span>
+              {/* Display user's name and avatar on larger screens, only avatar on smaller screens */}
+              <span className="hidden sm:block font-poppins text-base sm:text-lg text-black">
+                {user.displayName || 'User'}
+              </span>
               <img
                 src={user.photoURL || avatar}
-                className='h-8 sm:h-10 w-8 sm:w-10 rounded-full cursor-pointer'
+                className="h-8 sm:h-10 w-8 sm:w-10 rounded-full cursor-pointer"
                 alt="Avatar"
                 onClick={toggleDropdown} // Show dropdown on click
               />
@@ -109,7 +112,7 @@ const Navbar = ({ toggleSidebar }) => {
           ) : (
             <img
               src={avatar}
-              className='h-8 sm:h-10 w-8 sm:w-10 rounded-full cursor-pointer'
+              className="h-8 sm:h-10 w-8 sm:w-10 rounded-full cursor-pointer"
               alt="Avatar"
               onClick={toggleModal} // Show modal on click
             />

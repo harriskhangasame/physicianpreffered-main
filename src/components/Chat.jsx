@@ -11,9 +11,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { useParams } from 'react-router-dom';
 import { GoogleOutlined } from '@ant-design/icons';
 import { AiOutlineDownload } from 'react-icons/ai';
+import jsPDF from 'jspdf'; // Import jsPDF
+import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
 
 const Chat = ({ isSidebarOpen }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState([]);
   const [inputText, setInputText] = useState('');
   const [selectedButton, setSelectedButton] = useState('Patient History');
   const [uploading, setUploading] = useState(false);
@@ -35,16 +39,28 @@ const Chat = ({ isSidebarOpen }) => {
 
           if (docSnap.exists()) {
             const data = docSnap.data();
-            setSelectedFiles([{ name: data.fileName }]);
+            const fileNames = data.fileUrls.map((file) => file.fileName);
+
+
+            console.log(fileNames);
+            // setSelectedFiles([{ name: data.fileUrls[0].fileName }]);
+            setSelectedFiles(fileNames.map((name) => ({ name })));
             setInputText(data.prompt || '');
             setSelectedButton(data.summaryType);
             setRewrittenText(data.rewrittenText);
           } else {
             console.log('No such document!');
           }
-        } catch (error) {
+        }
+        catch (error) {
           console.error('Error fetching document:', error);
         }
+      }
+      else {
+        setSelectedFiles([]);
+        setInputText('');
+        setSelectedButton('Patient History');
+        setRewrittenText(null);
       }
     };
 
@@ -70,9 +86,20 @@ const Chat = ({ isSidebarOpen }) => {
   }, [isSignInModalOpen]);
 
   const handleFileUpload = (event) => {
-    const files = Array.from(event.target.files);
-    setSelectedFiles(files);
-    setRewrittenText(null);
+    const newFiles = Array.from(event.target.files);
+    // If there are existing files, append the new ones, otherwise reset to new files
+    if (rewrittenText) {
+      setSelectedFiles(newFiles);
+      setRewrittenText(null);
+    }
+    else{
+      setSelectedFiles((prevFiles) => {
+        if (prevFiles.length === 0) {
+          return newFiles; // Start fresh if there are no files already selected
+        }
+        return [...prevFiles, ...newFiles]; 
+      });
+    }
   };
 
   const handleRemoveFile = (index) => {
@@ -112,7 +139,7 @@ const Chat = ({ isSidebarOpen }) => {
     try {
       setUploading(true);
 
-      const mergeResponse = await fetch('http://18.225.57.61:7865/merge_pdfs', {
+      const mergeResponse = await fetch('https://zanium.ai/merge_pdfs', {
         method: 'POST',
         body: formData,
       });
@@ -124,7 +151,7 @@ const Chat = ({ isSidebarOpen }) => {
         rewriteFormData.append('pdf_file', mergedPdfBlob, 'merged_summary.pdf');
         rewriteFormData.append('prompt', prompt);
 
-        const rewriteResponse = await fetch('http://18.225.57.61:7865/rewrite_pdf', {
+        const rewriteResponse = await fetch('https://zanium.ai/rewrite_pdf', {
           method: 'POST',
           body: rewriteFormData,
         });
@@ -135,19 +162,29 @@ const Chat = ({ isSidebarOpen }) => {
           setRewrittenText(rewrittenTextFromApi);
 
           const uploadId = uuidv4();
-          const storageRef = ref(storage, `uploads/${uploadId}/${selectedFiles[0].name}/${selectedButton}`);
-          const uploadResult = await uploadBytes(storageRef, selectedFiles[0]);
-          const downloadUrl = await getDownloadURL(uploadResult.ref);
+          const fileUrls = [];
+          for (const file of selectedFiles) {
+            const storageRef = ref(storage, `uploads/${uploadId}/${file.name}/${selectedButton}`);
+            const uploadResult = await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(uploadResult.ref);
+            fileUrls.push(
+              {
+                url: downloadUrl,
+                fileName: file.name,
+              });
+          }
 
           const docRef = doc(db, `uploads/${uploadId}`);
-          await setDoc(docRef, {
-            email: user.email,
-            summaryType: selectedButton,
-            uploadedAt: new Date(),
-            rewrittenText: rewrittenTextFromApi,
-            filePath: uploadResult.ref.fullPath,
-            fileName: selectedFiles[0].name,
-          });
+
+          await setDoc(docRef,
+            {
+              email: user.email,
+              summaryType: selectedButton,
+              uploadedAt: new Date(),
+              rewrittenText: rewrittenTextFromApi,
+              fileUrls,
+
+            });
 
           console.log('Data successfully saved to Firestore');
         } else {
@@ -164,6 +201,8 @@ const Chat = ({ isSidebarOpen }) => {
     }
   };
 
+  // console.log( rewrittenText );
+  // console.log(selectedFiles);
   const toggleModal = () => {
     setIsModalOpen(!isModalOpen);
   };
@@ -184,7 +223,77 @@ const Chat = ({ isSidebarOpen }) => {
     formattedText = formattedText.replace(/###\s*(\w+\s+\w+)/g, '<strong>$1</strong>');
     let formattedTextWithLineBreaks = formattedText.replace(/\n/g, '<br>');
     formattedTextWithLineBreaks = formattedTextWithLineBreaks.replace(/---/g, '');
-    return { __html: formattedTextWithLineBreaks };
+    return { __html: formattedTextWithLineBreaks }; // Use dangerouslySetInnerHTML to render bold text
+  };
+  const handleDownloadPDF = () => {
+    const element = rewrittenTextRef.current; // Get the reference to the rewritten text div
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'pt',
+      format: 'a4'
+    });
+
+    const marginLeft = 40; // Left margin
+    let currentHeight = 40; // Starting height (top margin)
+    const pageHeight = pdf.internal.pageSize.height;
+
+    const formattedText = rewrittenText.split('\n'); // Split by new line
+    const lineHeight = 16; // Line height for normal text
+    const boldLineHeight = 18; // Line height for bold text
+
+    formattedText.forEach((line) => {
+      // Check for bold text (assuming bold text is wrapped in **double asterisks**)
+      const boldMatches = line.match(/\*\*(.*?)\*\*/);
+
+      if (boldMatches) {
+        const parts = line.split(/\*\*(.*?)\*\*/); // Split text into non-bold and bold parts
+
+        parts.forEach((part, index) => {
+          if (index % 2 === 0) {
+            // Regular text (non-bold)
+            pdf.setFont('helvetica', 'normal');
+            const textLines = pdf.splitTextToSize(part, 500); // Wrap the text for current width
+            textLines.forEach((textLine) => {
+              pdf.text(marginLeft, currentHeight, textLine);
+              currentHeight += lineHeight;
+
+              if (currentHeight > pageHeight - 40) {
+                pdf.addPage();
+                currentHeight = 40;
+              }
+            });
+          } else {
+            // Bold text
+            pdf.setFont('helvetica', 'bold');
+            const boldLines = pdf.splitTextToSize(part, 500);
+            boldLines.forEach((boldLine) => {
+              pdf.text(marginLeft, currentHeight, boldLine);
+              currentHeight += boldLineHeight;
+
+              if (currentHeight > pageHeight - 40) {
+                pdf.addPage();
+                currentHeight = 40;
+              }
+            });
+          }
+        });
+      } else {
+        // Handle lines without bold formatting
+        pdf.setFont('helvetica', 'normal');
+        const textLines = pdf.splitTextToSize(line, 500);
+        textLines.forEach((textLine) => {
+          pdf.text(marginLeft, currentHeight, textLine);
+          currentHeight += lineHeight;
+
+          if (currentHeight > pageHeight - 40) {
+            pdf.addPage();
+            currentHeight = 40;
+          }
+        });
+      }
+    });
+
+    pdf.save(`${selectedFiles[0]?.name || 'document'}_rewritten.pdf`);
   };
 
   return (
@@ -243,16 +352,16 @@ const Chat = ({ isSidebarOpen }) => {
             <p className="font-semibold mb-2">Rewritten Summary:</p>
             <div
               className="border border-gray-300 p-4 bg-white rounded-md mb-4"
-              style={{ height: '600px', overflowY: 'auto' }} // Adjust height for mobile responsiveness
+              style={{ height: '600px', overflowY: 'auto', marginBottom: '150px' }} // Adjust height for mobile responsiveness
               ref={rewrittenTextRef}
             >
               <div dangerouslySetInnerHTML={formatTextWithBold(rewrittenText)} />
             </div>
             <button
-              // onClick={handleDownloadPDF}
+              onClick={handleDownloadPDF}
               className="absolute top-0 right-0 bg-[#015BA3] text-white px-4 py-2 rounded-md"
             >
-              <AiOutlineDownload className="mr-2" /> 
+              <AiOutlineDownload className="mr-2" />
               {/* Download PDF */}
             </button>
           </div>
