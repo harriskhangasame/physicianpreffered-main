@@ -139,7 +139,7 @@ const Chat = ({ isSidebarOpen }) => {
     try {
       setUploading(true);
 
-      const mergeResponse = await fetch('https://zanium.ai/merge_pdfs', {
+      const mergeResponse = await fetch('https://dev.patientime.ai/merge_pdfs', {
         method: 'POST',
         body: formData,
       });
@@ -151,7 +151,7 @@ const Chat = ({ isSidebarOpen }) => {
         rewriteFormData.append('pdf_file', mergedPdfBlob, 'merged_summary.pdf');
         rewriteFormData.append('prompt', prompt);
 
-        const rewriteResponse = await fetch('https://zanium.ai/rewrite_pdf', {
+        const rewriteResponse = await fetch('https://dev.patientime.ai/rewrite_pdf', {
           method: 'POST',
           body: rewriteFormData,
         });
